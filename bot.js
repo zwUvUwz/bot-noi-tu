@@ -22,7 +22,20 @@ const premiumGuildsPath = path.resolve(__dirname, './data/premium-guilds.txt')
 const reportWordsPath = path.resolve(__dirname, './data/report-words.txt')
 const officalWordsPath = path.resolve(__dirname, './data/official-words.txt')
 
+// global config
+const START_COMMAND = '!start'
+const STOP_COMMAND = '!stop'
+const PREFIX = '!FD'
+const AutoDeleteMessageTime = 5 // Time to delete message after send
+let queryCount = stats.getQuery()
+
+// Voting data
+let ongoingVote = {}
+const SET_THRESHOLD_COMMAND = '!setvote' // Number of votes required to stop the game
+const TimeComponentCollector = 3600 // Thời gian khảo sát
+
 let data = {}
+
 if (!fs.existsSync(dataPath)) {
     console.log(`[WARNING] File data.json doesn't exist. Creating...`)
     fs.writeFileSync(dataPath, JSON.stringify(emptyData))
@@ -149,17 +162,6 @@ axios.get(contributeWordsUrl)
         console.log('[ERROR] Error when download contribute words: ' + err.message)
         return
     })
-
-// global config
-const START_COMMAND = '!start'
-const STOP_COMMAND = '!stop'
-const PREFIX = '!FD'
-const AutoDeleteMessageTime = 5 // Time to delete message after send
-let queryCount = stats.getQuery()
-// Voting data
-let ongoingVote = {}
-const SET_THRESHOLD_COMMAND = '!setvote' // Number of votes required to stop the game
-const TimeComponentCollector = 3600 // Thời gian khảo sát
 
 // We create a collection for commands
 client.commands = new Collection()
