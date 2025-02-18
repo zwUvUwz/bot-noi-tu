@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const { Client, GatewayIntentBits, Collection, PermissionsBitField } = require('discord.js')
+const { Client, GatewayIntentBits, Collection, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js')
 const axios = require('axios')
 const dictionary = require('./utils/dictionary')
 const { setChannel } = require('./utils/channel')
@@ -22,11 +22,14 @@ const premiumGuildsPath = path.resolve(__dirname, './data/premium-guilds.txt')
 const reportWordsPath = path.resolve(__dirname, './data/report-words.txt')
 const officalWordsPath = path.resolve(__dirname, './data/official-words.txt')
 
+let data = {}
 if (!fs.existsSync(dataPath)) {
     console.log(`[WARNING] File data.json doesn't exist. Creating...`)
     fs.writeFileSync(dataPath, JSON.stringify(emptyData))
+    data = emptyData
 } else {
     console.log(`[OK] File data.json exist.`)
+    data = require(dataPath)
 }
 
 if (!fs.existsSync(wordDataPath)) {
@@ -150,8 +153,13 @@ axios.get(contributeWordsUrl)
 // global config
 const START_COMMAND = '!start'
 const STOP_COMMAND = '!stop'
-const PREFIX = '?phobo'
+const PREFIX = '!FD'
+const AutoDeleteMessageTime = 5 // Time to delete message after send
 let queryCount = stats.getQuery()
+// Voting data
+let ongoingVote = {}
+const SET_THRESHOLD_COMMAND = '!setvote' // Number of votes required to stop the game
+const TimeComponentCollector = 3600 // Thời gian khảo sát
 
 // We create a collection for commands
 client.commands = new Collection()
@@ -200,7 +208,7 @@ client.on('messageCreate', async message => {
         })
     }
 
-    const sendAutoDeleteMessageToChannel = (msg, channel_id, seconds = 3) => {
+    const sendAutoDeleteMessageToChannel = (msg, channel_id, seconds = AutoDeleteMessageTime) => {
         client.channels.cache.get(channel_id).send({
             content: msg,
             flags: [4096]
@@ -324,18 +332,79 @@ client.on('messageCreate', async message => {
         if (!isRunning) {
             sendMessageToChannel(`Trò chơi đã bắt đầu!`, configChannel)
             startGame(configChannel)
-        } else sendMessageToChannel('Trò chơi vẫn đang tiếp tục. Bạn có thể dùng `!stop`', configChannel)
+        } else sendMessageToChannel('Trò chơi vẫn đang tiếp tục. Bạn có thể dùng `!stop` để kết thúc lượt chơi này.', configChannel)
         return
     } else if (message.content === STOP_COMMAND) {
 
         if(!message.member.permissionsIn(configChannel).has(PermissionsBitField.Flags.ManageChannels)) {
-            message.reply({
-                content: 'Bạn không có quyền dùng lệnh này',
-                ephemeral: true
-            })
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('stop_confirm')
+                        .setLabel(' Bí quá. Vote kết thúc lượt!!! ')
+                        .setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder()
+                        .setCustomId('stop_cancel')
+                        .setLabel('Chậm đã. Hủy vote ngay và luôn.')
+                        .setStyle(ButtonStyle.Secondary),
+                );
+    
+            if (!ongoingVote[configChannel]) {
+                ongoingVote[configChannel] = {
+                    count: 0,
+                    voters: []
+                }
+            }
+    
+            const pollMessage = await message.channel.send({
+                content: `Bạn không có quyền dùng lệnh này. Hãy bỏ phiếu để dừng trò chơi.\nĐã có ${ongoingVote[configChannel].count} phiếu. Cần ${data[guild.id].voteThreshold - ongoingVote[configChannel].count} phiếu nữa để dừng.`,
+                components: [row],
+            });
+    
+            const filter = i => i.customId === 'stop_confirm' || i.customId === 'stop_cancel';
+            const collector = pollMessage.createMessageComponentCollector({ filter, time: TimeComponentCollector * 1000 }); // Thời gian bỏ phiếu là x giây
+    
+            collector.on('collect', async i => {
+                if (i.customId === 'stop_confirm') {
+                    if (!ongoingVote[configChannel].voters.includes(i.user.id)) {
+                        ongoingVote[configChannel].count++
+                        ongoingVote[configChannel].voters.push(i.user.id)
+                        if (ongoingVote[configChannel].count >= data[guild.id].voteThreshold) {
+                            pollMessage.edit({ content: 'Đủ số phiếu chọn kết thúc lượt. Lượt mới đã bắt đầu!', components: [] });
+                            initWordData(configChannel)
+                            stats.addRoundPlayedCount()
+                            startGame(configChannel)
+                            delete ongoingVote[configChannel]
+                            collector.stop(); // Kết thúc bỏ phiếu nếu đủ số phiếu
+                        } else {
+                            pollMessage.edit({ content: `Đã có ${ongoingVote[configChannel].count} phiếu. Cần ${data[guild.id].voteThreshold - ongoingVote[configChannel].count} phiếu nữa để dừng.`, components: [row] });
+                            await i.reply({ content: 'Oke. Bạn đã bỏ phiếu dừng lượt nối từ này.', ephemeral: true });
+                            setTimeout(() => i.deleteReply(), AutoDeleteMessageTime * 1000); // Đổi từ mili giây sang giây
+                        }
+                    } else {
+                        await i.reply({ content: 'Chậm đã. Bạn đã bỏ phiếu rồi.', ephemeral: true });
+                        setTimeout(() => i.deleteReply(), AutoDeleteMessageTime * 1000); // Đổi từ mili giây sang giây
+                    }
+                } else {
+                    await i.update({ content: 'Đã hủy bỏ vote kết thúc lượt nối từ.', components: [] });
+                    collector.stop();
+                }
+            });
+    
+            collector.on('end', collected => {
+                if (!collected.size) {
+                    sendAutoDeleteMessageToChannel('Thời gian bỏ phiếu đã hết. Tiếp tục nối từ nào.', configChannel);
+                }
+                delete ongoingVote[configChannel];
+                setTimeout(() => pollMessage.delete(), AutoDeleteMessageTime * 1000); // Đổi từ mili giây sang giây
+            });
+
+            // Gán collector vào ongoingVote để sử dụng sau này
+            ongoingVote[configChannel].collector = collector;
+
             return
         }
-
+    
         if (isRunning) {
             sendMessageToChannel(`Đã kết thúc lượt này! Lượt mới đã bắt đầu!`, configChannel)
             initWordData(configChannel)
@@ -343,11 +412,37 @@ client.on('messageCreate', async message => {
             startGame(configChannel)
         } else sendMessageToChannel('Trò chơi chưa bắt đầu. Bạn có thể dùng `!start`', configChannel)
         return
+    } else if (message.content.startsWith(SET_THRESHOLD_COMMAND)) {
+        if (!message.member.permissionsIn(configChannel).has(PermissionsBitField.Flags.ManageChannels)) {
+            return message.reply({
+                content: 'Bạn không có quyền để dùng lệnh này',
+                ephemeral: true
+            });
+        }
+        const args = message.content.split(' ')
+        if (args.length === 2 && !isNaN(args[1])) {
+            const newThreshold = parseInt(args[1], 10)
+            if (!data[guild.id]) {
+                data[guild.id] = {}
+            }
+            data[guild.id].voteThreshold = newThreshold
+            fs.writeFileSync(dataPath, JSON.stringify(data, null, 2))
+            message.reply({
+                content: `Số lượng phiếu mới để dừng trò chơi là ${newThreshold}`,
+                ephemeral: true
+            });
+        } else {
+            message.reply({
+                content: 'Sử dụng lệnh đúng định dạng: !setvote <số lượng>',
+                ephemeral: true
+            });
+        }
+        return
     }
 
     if (!isRunning) {
         // check if game is running
-        // sendMessageToChannel('Trò chơi chưa bắt đầu. Bạn có thể dùng `!start`', configChannel)
+        sendMessageToChannel('Trò chơi chưa bắt đầu. Bạn có thể dùng `!start`', configChannel)
         return
     }
 
@@ -478,7 +573,7 @@ client.on('messageCreate', async message => {
     // check if words have or more than 1 space
     if (!(args1.length == 2)) {
         // message.react('❌')
-        // sendAutoDeleteMessageToChannel('Vui lòng nhập từ có chứa nhiều hơn 2 tiếng!', configChannel)
+        // sendAutoDeleteMessageToChannel('Vui lòng nhập từ có chứa nhiều hơn 2 từ!', configChannel)
         return
     }
 
@@ -486,7 +581,7 @@ client.on('messageCreate', async message => {
         // player can't answer 2 times
         let lastPlayerId = currentWordData.currentPlayer.id
         if (message.author.id === lastPlayerId) {
-            message.react('❌')
+            message.delete()
             sendAutoDeleteMessageToChannel('Bạn đã trả lời lượt trước rồi, hãy đợi đối thủ!', configChannel)
             return
         }
@@ -515,7 +610,7 @@ client.on('messageCreate', async message => {
         // check in dictionary
         message.react('❌')
         updateRankingForUser(0, 0, 1)
-        //sendMessageToChannel('Từ này không có trong từ điển tiếng Việt!', configChannel)
+        // sendMessageToChannel('Từ này không có trong từ điển tiếng Việt!', configChannel)
         return
     }
 
@@ -527,6 +622,13 @@ client.on('messageCreate', async message => {
     fs.writeFileSync(wordDataPath, JSON.stringify(wordDataChannel))
 
     message.react('✅')
+
+    // Nếu có người nối từ đúng trong thời gian bỏ phiếu, kết thúc bỏ phiếu
+    if (ongoingVote[configChannel] && ongoingVote[configChannel].collector) {
+        ongoingVote[configChannel].collector.stop(),
+        sendAutoDeleteMessageToChannel('--- Đã có người nối từ đúng. Kết thúc bỏ phiếu ---', configChannel);
+        delete ongoingVote[configChannel];
+    }
 
     stats.addWordPlayedCount()
 
