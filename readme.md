@@ -17,7 +17,7 @@ BOT nối từ tiếng Việt trên Discord! | [INVITE ME!](https://chở-cập-
 ### Cài đặt
 - Clone repo về máy:
 ```bash
-git clone [https://github.com/lvdat/bot-noi-tu](https://github.com/zwUvUwz/bot-noi-tu) && cd bot-noi-tu
+git clone https://github.com/zwUvUwz/bot-noi-tu && cd bot-noi-tu
 ```
 - Cài đặt các gói cần thiết:
 ```bash
