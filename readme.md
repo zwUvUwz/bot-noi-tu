@@ -1,5 +1,5 @@
-## Phở Bò | Bot nối từ tiếng Việt
-BOT nối từ tiếng Việt trên Discord! | [INVITE ME!](https://discord.com/oauth2/authorize?client_id=1211679955143106670) | [Discord Support Server](https://discord.gg/TFvSWf9SBb)
+## Neiko | Bot nối từ tiếng Việt
+BOT nối từ tiếng Việt trên Discord! | [INVITE ME!](https://chở-cập-nhật-đã) | [Discord Support Server](https://um-chưa-có)
 
 ## Nguồn ngữ liệu tiếng Việt
 > https://github.com/undertheseanlp/dictionary (ngữ liệu chính, có chỉnh sửa để phù hợp với trò chơi)
